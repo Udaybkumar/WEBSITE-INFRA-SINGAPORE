@@ -1,0 +1,9 @@
+.git
+.github
+.terraform
+terraform.tfstate
+terraform.tfstate.backup
+main.tf
+k8s-manifest.yaml
+docker-compose.yml
+README.md
