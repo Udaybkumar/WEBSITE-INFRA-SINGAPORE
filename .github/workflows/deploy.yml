@@ -1,0 +1,61 @@
+name: Deploy to EKS
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  AWS_REGION: ap-southeast-1                   # Singapore
+  ECR_REPOSITORY: my-js-app                    # Your Repo Name
+  EKS_CLUSTER_NAME: devops-cluster-singapore   # Your Cluster Name
+  CONTAINER_NAME: js-app                       # Name in Deployment YAML
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for requesting the JWT
+      contents: read   # Required for actions/checkout
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build a docker container and
+        # push it to ECR so that it can be deployed to EKS.
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Update Kubeconfig
+      run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+    - name: Install Helm (for Controller if needed)
+      uses: azure/setup-helm@v3
+
+    - name: Deploy to EKS
+      env:
+        IMAGE_URI: ${{ steps.build-image.outputs.image }}
+      run: |
+        # We use 'envsubst' to replace the image variable in your manifest dynamically
+        # This requires your k8s-manifest.yaml to use ${IMAGE_URI} placeholder
+        sed -i "s|image: .*|image: $IMAGE_URI|g" k8s-manifest.yaml
+        
+        kubectl apply -f k8s-manifest.yaml
