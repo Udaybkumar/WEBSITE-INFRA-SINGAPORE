@@ -1,25 +1,15 @@
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.0.0"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = ">= 2.20"
-    }
+    # This is the critical missing piece:
     helm = {
       source  = "hashicorp/helm"
-      version = ">= 2.9"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
-    }
-    http = {
-      source  = "hashicorp/http"
-      version = "~> 3.0"
+      version = "~> 2.0"
     }
   }
 }
@@ -31,6 +21,19 @@ variable "env"          { default = "dev" }
 
 provider "aws" {
   region = var.region
+}
+# --- NEW: Get Authentication Token for the Cluster ---
+data "aws_eks_cluster_auth" "main" {
+  name = aws_eks_cluster.main.name
+}
+
+# --- NEW: Configure Helm to talk to the new Cluster ---
+provider "helm" {
+  kubernetes {
+    host                   = aws_eks_cluster.main.endpoint
+    cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
+    token                  = data.aws_eks_cluster_auth.main.token
+  }
 }
 
 # ==============================================================================
@@ -214,4 +217,36 @@ output "ecr_url" {
 }
 output "alb_role_arn" {
   value = aws_iam_role.alb_role.arn
+}
+
+# ==============================================================================
+# 7. AUTOMATED HELM INSTALL (Replaces Manual Step 2)
+# ==============================================================================
+resource "helm_release" "alb_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  namespace  = "kube-system"
+
+  set {
+    name  = "clusterName"
+    value = var.cluster_name
+  }
+
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = "aws-load-balancer-controller"
+  }
+
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.alb_role.arn
+  }
+
+  depends_on = [aws_eks_node_group.main]
 }
