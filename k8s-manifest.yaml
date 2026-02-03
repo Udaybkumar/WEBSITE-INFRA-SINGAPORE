@@ -1,8 +1,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: js-app
-  namespace: default
+  name: js-app-deployment
+  labels:
+    app: js-app
 spec:
   replicas: 2
   selector:
@@ -15,42 +16,30 @@ spec:
     spec:
       containers:
       - name: js-app
-        image: 493263630011.dkr.ecr.ap-southeast-1.amazonaws.com/my-js-app:latest
-        imagePullPolicy: Always
+        # This placeholder is replaced by your GitHub Action automatically
+        image: IMAGE_PLACEHOLDER
         ports:
-        - containerPort: 80
+        - containerPort: 3000  # Ensure this matches your App's internal port
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
   name: js-app-service
-  namespace: default
 spec:
+  # CHANGE: This triggers the Classic Load Balancer creation
+  type: LoadBalancer
   selector:
     app: js-app
   ports:
     - protocol: TCP
-      port: 80
-      targetPort: 80
-  type: NodePort
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: js-app-ingress
-  namespace: default
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-spec:
-  ingressClassName: alb
-  rules:
-    - http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: js-app-service
-                port:
-                  number: 80
+      port: 80         # The port the world sees (HTTP)
+      targetPort: 3000 # The port your container listens on
