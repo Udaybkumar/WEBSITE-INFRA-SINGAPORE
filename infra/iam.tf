@@ -83,14 +83,13 @@ resource "aws_iam_role_policy" "alb_policy" {
   name = "AWSLoadBalancerControllerIAMPolicy"
   role = aws_iam_role.alb_role.id
 
-  # Note: In a real prod setup, you download the JSON. 
-  # For this demo, we use a generous permission set for the LB.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
         Action = [
+          "iam:CreateServiceLinkedRole",
           "ec2:DescribeAccountAttributes",
           "ec2:DescribeAddresses",
           "ec2:DescribeAvailabilityZones",
@@ -101,10 +100,34 @@ resource "aws_iam_role_policy" "alb_policy" {
           "ec2:DescribeInstances",
           "ec2:DescribeNetworkInterfaces",
           "ec2:DescribeTags",
-          "elasticloadbalancing:*"
+          "ec2:GetCoipPoolUsage",
+          "ec2:DescribeCoipPools",
+          "ec2:CreateSecurityGroup", # <--- THE MISSING PIECE
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress",
+          "ec2:DeleteSecurityGroup",
+          "elasticloadbalancing:*",
+          "cognito-idp:DescribeUserPoolClient",
+          "acm:ListCertificates",
+          "acm:DescribeCertificate",
+          "iam:ListServerCertificates",
+          "iam:GetServerCertificate",
+          "waf-regional:GetWebACL",
+          "waf-regional:GetWebACLForResource",
+          "waf-regional:AssociateWebACL",
+          "waf-regional:DisassociateWebACL",
+          "wafv2:GetWebACL",
+          "wafv2:GetWebACLForResource",
+          "wafv2:AssociateWebACL",
+          "wafv2:DisassociateWebACL",
+          "shield:GetSubscriptionState",
+          "shield:DescribeProtection",
+          "shield:CreateProtection",
+          "shield:DeleteProtection"
         ]
         Resource = "*"
       }
     ]
   })
 }
+  
