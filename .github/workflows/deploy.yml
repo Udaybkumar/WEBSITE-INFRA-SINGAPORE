@@ -59,7 +59,6 @@ jobs:
         # We use 'envsubst' to replace the image variable in your manifest dynamically
         # This requires your k8s-manifest.yaml to use ${IMAGE_URI} placeholder
         sed -i "s|image: .*|image: $IMAGE_URI|g" k8s-manifest.yaml
-
         kubectl apply -f infra/k8s-manifest.yaml
-      #  kubectl apply -f k8s-manifest.yaml
+     
 
