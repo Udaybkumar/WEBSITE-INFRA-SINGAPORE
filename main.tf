@@ -25,9 +25,9 @@ terraform {
 }
 
 # --- FROZEN PARAMETERS ---
-variable "region"       { default = "ap-southeast-1" } # Singapore
+variable "region" { default = "ap-southeast-1" } # Singapore
 variable "cluster_name" { default = "devops-cluster-singapore" }
-variable "env"          { default = "dev" }
+variable "env" { default = "dev" }
 
 provider "aws" {
   region = var.region
@@ -49,12 +49,12 @@ module "vpc" {
   private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
   public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
 
-  enable_nat_gateway     = true
-  single_nat_gateway     = true
-  enable_dns_hostnames   = true
+  enable_nat_gateway   = true
+  single_nat_gateway   = true
+  enable_dns_hostnames = true
 
   # Tags required for Load Balancer Controller
-  public_subnet_tags = { "kubernetes.io/role/elb" = 1 }
+  public_subnet_tags  = { "kubernetes.io/role/elb" = 1 }
   private_subnet_tags = { "kubernetes.io/role/internal-elb" = 1 }
 }
 
@@ -66,8 +66,8 @@ resource "aws_iam_role" "eks_cluster_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "eks.amazonaws.com" }
     }]
   })
@@ -83,8 +83,8 @@ resource "aws_iam_role" "eks_node_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "ec2.amazonaws.com" }
     }]
   })
@@ -137,7 +137,7 @@ resource "aws_eks_node_group" "main" {
 
   # CHANGED to t3.small because t3.micro allows only 4 pods max (System uses all 4).
   # t3.small allows 11 pods.
-  instance_types = ["t3.small"] 
+  instance_types = ["t3.small"]
 
   depends_on = [
     aws_iam_role_policy_attachment.eks_worker_node,
@@ -150,7 +150,7 @@ resource "aws_eks_node_group" "main" {
 # 5. ECR REPO
 # ==============================================================================
 resource "aws_ecr_repository" "app" {
-  name = "my-js-app"
+  name                 = "my-electro-app"
   image_tag_mutability = "MUTABLE"
   image_scanning_configuration { scan_on_push = true }
 }
@@ -214,4 +214,12 @@ output "ecr_url" {
 }
 output "alb_role_arn" {
   value = aws_iam_role.alb_role.arn
+}
+# Automatically update local kubeconfig after cluster creation
+resource "null_resource" "update_kubeconfig" {
+  depends_on = [aws_eks_cluster.main]
+
+  provisioner "local-exec" {
+    command = "aws eks update-kubeconfig --region ap-southeast-1 --name ${aws_eks_cluster.main.name}"
+  }
 }

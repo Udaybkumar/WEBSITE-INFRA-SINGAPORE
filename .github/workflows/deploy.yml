@@ -6,7 +6,7 @@ on:
 
 env:
   AWS_REGION: ap-southeast-1                   # Singapore
-  ECR_REPOSITORY: my-js-app                    # Your Repo Name
+  ECR_REPOSITORY: my-electro-app                    # Your Repo Name
   EKS_CLUSTER_NAME: devops-cluster-singapore   # Your Cluster Name
   CONTAINER_NAME: js-app                       # Name in Deployment YAML
 
