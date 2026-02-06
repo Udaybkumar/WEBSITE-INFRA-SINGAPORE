@@ -11,7 +11,7 @@ terraform {
     }
     helm = {
       source  = "hashicorp/helm"
-      version = ">= 2.9"
+      version = "~> 2.9"
     }
     tls = {
       source  = "hashicorp/tls"
@@ -59,10 +59,10 @@ module "vpc" {
 }
 
 # ==============================================================================
-# 2. IAM ROLES (Raw - No Modules)
+# 2. IAM ROLES
 # ==============================================================================
 resource "aws_iam_role" "eks_cluster_role" {
-  name = "${var.cluster_name}-cluster-role"
+  name_prefix = "${var.cluster_name}-cluster-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -79,7 +79,7 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
 }
 
 resource "aws_iam_role" "eks_node_role" {
-  name = "${var.cluster_name}-node-role"
+  name_prefix = "${var.cluster_name}-node-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -103,8 +103,14 @@ resource "aws_iam_role_policy_attachment" "eks_ecr" {
   role       = aws_iam_role.eks_node_role.name
 }
 
+# --- NEW: CloudWatch Permission for Nodes ---
+resource "aws_iam_role_policy_attachment" "eks_cloudwatch" {
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+  role       = aws_iam_role.eks_node_role.name
+}
+
 # ==============================================================================
-# 3. EKS CLUSTER (Raw Resource)
+# 3. EKS CLUSTER
 # ==============================================================================
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
@@ -135,14 +141,13 @@ resource "aws_eks_node_group" "main" {
     min_size     = 2
   }
 
-  # CHANGED to t3.small because t3.micro allows only 4 pods max (System uses all 4).
-  # t3.small allows 11 pods.
   instance_types = ["t3.small"]
 
   depends_on = [
     aws_iam_role_policy_attachment.eks_worker_node,
     aws_iam_role_policy_attachment.eks_cni,
     aws_iam_role_policy_attachment.eks_ecr,
+    aws_iam_role_policy_attachment.eks_cloudwatch, # Ensure CloudWatch permission is ready
   ]
 }
 
@@ -156,7 +161,7 @@ resource "aws_ecr_repository" "app" {
 }
 
 # ==============================================================================
-# 6. IAM FOR ALB (Raw)
+# 6. IAM FOR ALB
 # ==============================================================================
 data "tls_certificate" "eks" {
   url = aws_eks_cluster.main.identity[0].oidc[0].issuer
@@ -173,8 +178,9 @@ data "http" "alb_policy" {
 }
 
 resource "aws_iam_policy" "alb_controller" {
-  name   = "${var.cluster_name}-alb-policy"
-  policy = data.http.alb_policy.response_body
+  # CHANGED: 'name' -> 'name_prefix' to avoid conflicts
+  name_prefix = "${var.cluster_name}-alb-policy-"
+  policy      = data.http.alb_policy.response_body
 }
 
 data "aws_iam_policy_document" "alb_assume_role" {
@@ -194,13 +200,88 @@ data "aws_iam_policy_document" "alb_assume_role" {
 }
 
 resource "aws_iam_role" "alb_role" {
-  name               = "${var.cluster_name}-alb-role"
+  # CHANGED: 'name' -> 'name_prefix' to avoid conflicts
+  name_prefix        = "${var.cluster_name}-alb-role-"
   assume_role_policy = data.aws_iam_policy_document.alb_assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "alb_attach" {
   role       = aws_iam_role.alb_role.name
   policy_arn = aws_iam_policy.alb_controller.arn
+}
+
+# ==============================================================================
+# 7. AUTOMATION & HELM CHARTS
+# ==============================================================================
+
+# Automatically update local kubeconfig
+resource "null_resource" "update_kubeconfig" {
+  depends_on = [aws_eks_cluster.main]
+  provisioner "local-exec" {
+    command = "aws eks update-kubeconfig --region ap-southeast-1 --name ${aws_eks_cluster.main.name}"
+  }
+}
+
+# Authenticate Helm
+provider "helm" {
+  kubernetes {
+    host                   = aws_eks_cluster.main.endpoint
+    cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.main.name]
+      command     = "aws"
+    }
+  }
+}
+
+# --- NEW: Metrics Server (For Auto-Scaling) ---
+resource "helm_release" "metrics_server" {
+  name       = "metrics-server"
+  repository = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart      = "metrics-server"
+  namespace  = "kube-system"
+  version    = "3.12.1"
+  set {
+    name  = "metrics.enabled"
+    value = "true"
+  }
+  depends_on = [aws_eks_node_group.main]
+}
+
+# --- NEW: AWS Load Balancer Controller (For Ingress) ---
+resource "helm_release" "alb_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  namespace  = "kube-system"
+  version    = "1.7.1"
+
+  set {
+    name  = "clusterName"
+    value = aws_eks_cluster.main.name
+  }
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+  set {
+    name  = "serviceAccount.name"
+    value = "aws-load-balancer-controller"
+  }
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.alb_role.arn
+  }
+  depends_on = [aws_eks_node_group.main, aws_iam_role_policy_attachment.alb_attach]
+}
+
+# --- NEW: CloudWatch Observability Addon (For Monitoring) ---
+resource "aws_eks_addon" "cloudwatch_observability" {
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "amazon-cloudwatch-observability"
+  depends_on   = [aws_eks_node_group.main,
+    helm_release.alb_controller]
 }
 
 # ==============================================================================
@@ -211,15 +292,4 @@ output "configure_kubectl" {
 }
 output "ecr_url" {
   value = aws_ecr_repository.app.repository_url
-}
-output "alb_role_arn" {
-  value = aws_iam_role.alb_role.arn
-}
-# Automatically update local kubeconfig after cluster creation
-resource "null_resource" "update_kubeconfig" {
-  depends_on = [aws_eks_cluster.main]
-
-  provisioner "local-exec" {
-    command = "aws eks update-kubeconfig --region ap-southeast-1 --name ${aws_eks_cluster.main.name}"
-  }
 }

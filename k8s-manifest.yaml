@@ -16,11 +16,11 @@ spec:
     spec:
       containers:
       - name: js-app
-        # This placeholder is replaced by your GitHub Action automatically
-        image: IMAGE_PLACEHOLDER
+        image: IMAGE_PLACEHOLDER  # Replaced by GitHub Actions
         ports:
-        - containerPort: 3000  # Ensure this matches your App's internal port
+        - containerPort: 80
         resources:
+          # REQUIRED for HPA to work!
           requests:
             memory: "64Mi"
             cpu: "250m"
@@ -35,14 +35,34 @@ kind: Service
 metadata:
   name: js-app-service
   annotations:
-    # Ensure it creates a Public Load Balancer
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
 spec:
-  # CHANGE: This triggers the Classic Load Balancer creation
   type: LoadBalancer
   selector:
     app: js-app
   ports:
     - protocol: TCP
-      port: 80         # The port the world sees (HTTP)
-      targetPort: 80 # The port your container listens on
+      port: 80
+      targetPort: 80
+
+---
+
+# NEW: This controls the Auto-Scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: js-app-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: js-app-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
