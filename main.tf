@@ -130,9 +130,9 @@ resource "aws_eks_node_group" "main" {
   subnet_ids      = module.vpc.private_subnets
 
   scaling_config {
-    desired_size = 1
-    max_size     = 2
-    min_size     = 1
+    desired_size = 2
+    max_size     = 4
+    min_size     = 2
   }
 
   # CHANGED to t3.small because t3.micro allows only 4 pods max (System uses all 4).
