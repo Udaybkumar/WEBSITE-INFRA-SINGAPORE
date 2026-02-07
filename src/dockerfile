@@ -1,8 +1,0 @@
-# Use a lightweight web server
-FROM nginx:alpine
-
-# Copy your files to the server's default folder
-COPY . /usr/share/nginx/html
-
-# Open port 80
-EXPOSE 80
