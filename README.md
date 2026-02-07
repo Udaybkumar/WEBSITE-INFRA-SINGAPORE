@@ -36,3 +36,4 @@ The infrastructure is built from scratch to ensure security, scalability, and au
 ├── .dockerignore         # Excludes sensitive/unwanted files from Docker build
 ├── .gitignore            # Excludes Terraform state & plugins from Git
 └── README.md             # Project documentation
+Added Cloud watch
